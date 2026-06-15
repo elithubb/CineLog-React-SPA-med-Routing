@@ -111,6 +111,8 @@ for cat, m_list in categories.items():
     for m in m_list:
         unique_movies[m["imdbID"]] = m
 
+os.makedirs("public/fallback-posters", exist_ok=True)
+
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 }
@@ -135,11 +137,12 @@ def format_release_date(date_str):
 
 movie_details = []
 
-print(f"Scraping detailed metadata for {len(unique_movies)} unique movies...")
+print(f"Scraping detailed metadata and downloading posters for {len(unique_movies)} movies...")
 
 for idx, (imdb_id, m) in enumerate(unique_movies.items(), 1):
-    print(f"[{idx}/{len(unique_movies)}] Fetching {m['title']}...")
+    print(f"[{idx}/{len(unique_movies)}] Processing {m['title']}...")
     url = f"https://www.themoviedb.org/{m['type']}/{m['tmdbID']}"
+    img_path = f"public/fallback-posters/{imdb_id}.jpg"
     
     # Defaults
     detail = {
@@ -238,7 +241,6 @@ for idx, (imdb_id, m) in enumerate(unique_movies.items(), 1):
             crew_names = set(directors + writers)
             for act in cast_links:
                 if act not in crew_names and act not in actors:
-                    # Clean tags or extra entities
                     act_cleaned = re.sub(r'<[^>]+>', '', act).strip()
                     if act_cleaned and len(actors) < 4:
                         actors.append(act_cleaned)
@@ -258,6 +260,30 @@ for idx, (imdb_id, m) in enumerate(unique_movies.items(), 1):
                     detail["BoxOffice"] = f"${int(rev_val):,}"
                 except ValueError:
                     detail["BoxOffice"] = "N/A"
+            
+            # 6. Poster Download
+            if not os.path.exists(img_path):
+                posters = re.findall(r'https://image\.tmdb\.org/t/p/(?:w500|w300|original|w300_and_h450_bestv2)/[^"\s>]+', html)
+                raw_posters = re.findall(r'/t/p/[^"\s>]+', html)
+                
+                final_poster_url = None
+                if posters:
+                    final_poster_url = posters[0]
+                elif raw_posters:
+                    final_poster_url = f"https://image.tmdb.org{raw_posters[0]}"
+                    
+                if final_poster_url:
+                    final_poster_url = final_poster_url.split('"')[0].split('&')[0].split(' ')[0]
+                    final_poster_url = re.sub(r'/t/p/(?:w[0-9]+|original|w300_and_h450_bestv2)', '/t/p/w500', final_poster_url)
+                    
+                    print(f"  Downloading poster: {final_poster_url}")
+                    try:
+                        img_req = urllib.request.Request(final_poster_url, headers=headers)
+                        with urllib.request.urlopen(img_req) as img_res:
+                            with open(img_path, "wb") as f:
+                                f.write(img_res.read())
+                    except Exception as ie:
+                        print(f"  Poster download error: {ie}")
                     
     except Exception as e:
         print(f"  Error reading TMDB for {m['title']}: {e}")
